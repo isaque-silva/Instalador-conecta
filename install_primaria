@@ -69,10 +69,10 @@ system_certbot_install
 system_create_user
 system_pm2_install
 
-# backend related
+# backend related (ordem: criar banco → escrever .env → deps → migrate → build → seed → pm2)
 system_git_clone
-backend_set_env
 backend_db_create
+backend_set_env
 backend_node_dependencies
 backend_db_migrate
 backend_node_build

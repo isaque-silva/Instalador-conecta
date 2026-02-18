@@ -17,11 +17,15 @@ function backend_db_create() {
   local db_user="${instancia_add:-${POSTGRES_USER}}"
   local db_name="${instancia_add:-${POSTGRES_DB}}"
   local db_pass="${mysql_root_password:-${postgres_password}}"
+  # Escapar aspas simples para uso em SQL
+  local db_pass_sql="${db_pass//\'/\'\'}"
 
   sudo -u postgres bash <<EOF
-  psql -c "CREATE USER ${db_user} WITH PASSWORD '${db_pass}';" 2>/dev/null || echo "Usuário já existe"
+  psql -c "CREATE USER ${db_user} WITH PASSWORD '${db_pass_sql}';" 2>/dev/null || true
+  psql -c "ALTER USER ${db_user} WITH PASSWORD '${db_pass_sql}';"
   psql -c "ALTER USER ${db_user} CREATEDB;" 2>/dev/null || true
-  psql -c "CREATE DATABASE ${db_name} OWNER ${db_user};" 2>/dev/null || echo "Banco já existe"
+  psql -c "CREATE DATABASE ${db_name} OWNER ${db_user};" 2>/dev/null || true
+  psql -c "GRANT ALL PRIVILEGES ON DATABASE ${db_name} TO ${db_user};" 2>/dev/null || true
 EOF
 
   sleep 2
@@ -109,16 +113,10 @@ function backend_node_dependencies() {
     app_instance_dir="/home/${DEPLOY_USER}/${instancia_add}"
   fi
 
-  local db_user="${instancia_add:-${POSTGRES_USER}}"
-  local db_name="${instancia_add:-${POSTGRES_DB}}"
-  local db_pass="${mysql_root_password:-${postgres_password}}"
-
   sudo -u "${DEPLOY_USER}" bash <<EOF
   cd "${app_instance_dir}/backend"
   npm install
-  
-  # Gerar Prisma Client após instalar dependências
-  export DATABASE_URL="postgresql://${db_user}:${db_pass}@localhost:${POSTGRES_PORT}/${db_name}?schema=public"
+  # Prisma usa o .env do diretório backend
   npx prisma generate || echo "Prisma generate falhou, mas continuando..."
 EOF
 
@@ -174,34 +172,29 @@ function backend_db_migrate() {
     app_instance_dir="/home/${DEPLOY_USER}/${instancia_add}"
   fi
 
-  local db_user="${instancia_add:-${POSTGRES_USER}}"
-  local db_name="${instancia_add:-${POSTGRES_DB}}"
-  local db_pass="${mysql_root_password:-${postgres_password}}"
-
+  # Usar o .env já escrito pelo backend_set_env (mesma fonte de credenciais)
   sudo -u "${DEPLOY_USER}" bash <<EOF
   cd "${app_instance_dir}/backend"
-  export DATABASE_URL="postgresql://${db_user}:${db_pass}@localhost:${POSTGRES_PORT}/${db_name}?schema=public"
   
-  # Gerar Prisma Client primeiro
-  npx prisma generate || echo "Prisma generate falhou, mas continuando..."
+  # Garantir que .env existe
+  if [[ ! -f .env ]]; then
+    echo "ERRO: Arquivo .env não encontrado. Execute backend_set_env antes."
+    exit 1
+  fi
   
-  # Tentar usar db push primeiro (mais tolerante a problemas de migração)
-  # Se db push falhar, tentar migrate deploy
-  # Se migrate deploy falhar, tentar resetar e usar db push novamente
-  if ! npx prisma db push --accept-data-loss 2>/dev/null; then
+  # Prisma usa o .env automaticamente
+  npx prisma generate || true
+  
+  # Aplicar schema: preferir db push (mais simples, sem histórico de migrações)
+  if ! npx prisma db push --accept-data-loss; then
     echo "db push falhou, tentando migrate deploy..."
-    if ! npx prisma migrate deploy 2>/dev/null; then
-      echo "migrate deploy falhou, usando db push com reset..."
-      npx prisma migrate reset --force --skip-seed 2>/dev/null || true
-      if ! npx prisma db push --accept-data-loss; then
-        echo "ERRO: Falha ao aplicar schema do banco de dados"
-        exit 1
-      fi
+    if ! npx prisma migrate deploy; then
+      echo "migrate deploy falhou. Verifique as credenciais em .env e se o usuário conecta existe no PostgreSQL."
+      exit 1
     fi
   fi
   
-  # Garantir que Prisma Client está atualizado
-  npx prisma generate || echo "Prisma generate falhou, mas continuando..."
+  npx prisma generate || true
 EOF
 
   sleep 2
