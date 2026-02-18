@@ -125,7 +125,13 @@ function system_update() {
   echo ">>> Executando: apt update"
   sudo apt -y update
   echo ">>> Executando: apt install (dependências do sistema)"
-  sudo apt-get install -y libxshmfence-dev libgbm-dev wget unzip fontconfig locales gconf-service libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgconf-2-4 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 ca-certificates fonts-liberation libappindicator1 libnss3 lsb-release xdg-utils
+  sudo apt-get install -y git libxshmfence-dev libgbm-dev wget unzip fontconfig locales gconf-service libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgconf-2-4 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 ca-certificates fonts-liberation libappindicator1 libnss3 lsb-release xdg-utils
+  echo ""
+
+  # Configurar locale pt_BR.UTF-8
+  echo ">>> Configurando locale pt_BR.UTF-8"
+  sudo locale-gen pt_BR.UTF-8 2>/dev/null || true
+  sudo update-locale LANG=pt_BR.UTF-8 2>/dev/null || true
   echo ""
 
   sleep 2
@@ -180,11 +186,18 @@ function system_pm2_install() {
 
   if check_command pm2; then
     print_info "PM2 já instalado"
-    return 0
+  else
+    echo ">>> Executando: npm install -g pm2"
+    sudo npm install -g pm2
+    echo ""
   fi
 
-  echo ">>> Executando: npm install -g pm2"
-  sudo npm install -g pm2
+  # Configurar PM2 para iniciar no boot
+  echo ">>> Configurando PM2 para iniciar no boot do sistema"
+  sudo -u "${DEPLOY_USER}" pm2 startup systemd -u "${DEPLOY_USER}" --hp "/home/${DEPLOY_USER}" 2>/dev/null || {
+    # Se falhar, tentar sem especificar usuário
+    sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u "${DEPLOY_USER}" --hp "/home/${DEPLOY_USER}" || true
+  }
   echo ""
 
   sleep 2
@@ -292,6 +305,74 @@ function system_nginx_restart() {
 }
 
 #######################################
+# Cria um único server block para instalação primária (um domínio).
+# Necessário para o Certbot encontrar server_name e para / e /api funcionarem.
+#######################################
+function system_nginx_primary_sites() {
+  print_banner
+  printf "${WHITE} 💻 Configurando nginx (backend + frontend)...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+
+  local server_name="${domain:-_}"
+  local backend_port_used="${BACKEND_PORT:-3001}"
+  local app_dir="${APP_DIR:-/home/conecta/conecta}"
+
+  echo ">>> Gerando /etc/nginx/sites-available/conecta (server_name=${server_name})"
+  sudo tee /etc/nginx/sites-available/conecta > /dev/null << NGINXEOF
+server {
+  listen 80;
+  server_name ${server_name};
+  client_max_body_size 100M;
+
+  location /api {
+    proxy_pass http://127.0.0.1:${backend_port_used};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_cache_bypass \$http_upgrade;
+  }
+  location /socket.io {
+    proxy_pass http://127.0.0.1:${backend_port_used};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
+  location /api/media {
+    alias ${app_dir}/backend/media;
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+  }
+  location / {
+    root ${app_dir}/frontend/dist;
+    try_files \$uri \$uri/ /index.html;
+    index index.html;
+  }
+}
+NGINXEOF
+  sudo rm -f /etc/nginx/sites-enabled/default
+  sudo ln -sf /etc/nginx/sites-available/conecta /etc/nginx/sites-enabled
+
+  if sudo nginx -t; then
+    print_success "Configuração do Nginx válida"
+  else
+    print_error "Erro na configuração do Nginx"
+    exit 1
+  fi
+  echo ""
+  sleep 2
+}
+
+#######################################
 # Setup for nginx.conf
 # Arguments:
 #   None
@@ -344,6 +425,172 @@ function system_certbot_setup() {
   sudo systemctl enable certbot.timer
   sudo systemctl start certbot.timer
 
+  sleep 2
+}
+
+#######################################
+# Configura firewall UFW
+# Arguments:
+#   None
+#######################################
+function system_firewall_setup() {
+  print_banner
+  printf "${WHITE} 💻 Configurando firewall (UFW)...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+
+  if ! check_command ufw; then
+    echo ">>> Instalando UFW"
+    sudo apt-get install -y ufw
+  fi
+
+  echo ">>> Configurando regras do firewall"
+  # Permitir SSH (porta 22) - importante fazer primeiro
+  sudo ufw allow 22/tcp comment 'SSH' 2>/dev/null || true
+  # Permitir HTTP (porta 80)
+  sudo ufw allow 80/tcp comment 'HTTP' 2>/dev/null || true
+  # Permitir HTTPS (porta 443)
+  sudo ufw allow 443/tcp comment 'HTTPS' 2>/dev/null || true
+  
+  # Habilitar firewall se não estiver habilitado
+  if ! sudo ufw status | grep -q "Status: active"; then
+    echo ">>> Habilitando firewall (UFW)"
+    echo "y" | sudo ufw enable 2>/dev/null || sudo ufw --force enable
+  else
+    print_info "Firewall já está ativo"
+  fi
+  
+  echo ""
+  sudo ufw status
+  echo ""
+
+  sleep 2
+}
+
+#######################################
+# Configura limites do sistema para o usuário conecta
+# Arguments:
+#   None
+#######################################
+function system_limits_setup() {
+  print_banner
+  printf "${WHITE} 💻 Configurando limites do sistema...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+
+  echo ">>> Configurando limites do sistema para ${DEPLOY_USER}"
+  sudo tee /etc/security/limits.d/conecta.conf > /dev/null << LIMITSEOF
+${DEPLOY_USER} soft nofile 65536
+${DEPLOY_USER} hard nofile 65536
+${DEPLOY_USER} soft nproc 32768
+${DEPLOY_USER} hard nproc 32768
+LIMITSEOF
+  echo "Limites configurados: nofile=65536, nproc=32768"
+  echo ""
+
+  sleep 2
+}
+
+#######################################
+# Verificação final pós-instalação
+# Arguments:
+#   None
+#######################################
+function system_post_install_check() {
+  print_banner
+  printf "${WHITE} ✅ Verificação final da instalação...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+
+  local errors=0
+  local warnings=0
+
+  echo ">>> Verificando serviços..."
+  
+  # Verificar PostgreSQL
+  if systemctl is-active --quiet postgresql; then
+    print_success "PostgreSQL está rodando"
+  else
+    print_error "PostgreSQL NÃO está rodando"
+    ((errors++))
+  fi
+  
+  # Verificar Nginx
+  if systemctl is-active --quiet nginx; then
+    print_success "Nginx está rodando"
+  else
+    print_error "Nginx NÃO está rodando"
+    ((errors++))
+  fi
+  
+  # Verificar PM2
+  if sudo -u "${DEPLOY_USER}" pm2 list &>/dev/null; then
+    print_success "PM2 está configurado"
+    echo ""
+    echo ">>> Processos PM2:"
+    sudo -u "${DEPLOY_USER}" pm2 list
+  else
+    print_warning "PM2 não está configurado corretamente"
+    ((warnings++))
+  fi
+  
+  # Verificar se o backend está rodando no PM2
+  if sudo -u "${DEPLOY_USER}" pm2 list | grep -q "conecta-backend.*online"; then
+    print_success "Backend está rodando no PM2"
+  else
+    print_warning "Backend NÃO está rodando no PM2"
+    ((warnings++))
+  fi
+  
+  # Verificar se o diretório frontend/dist existe
+  if [[ -d "${APP_DIR}/frontend/dist" ]]; then
+    print_success "Frontend compilado encontrado"
+  else
+    print_warning "Frontend não foi compilado ou não encontrado"
+    ((warnings++))
+  fi
+  
+  # Verificar configuração do Nginx
+  if sudo nginx -t &>/dev/null; then
+    print_success "Configuração do Nginx é válida"
+  else
+    print_error "Configuração do Nginx tem erros"
+    ((errors++))
+  fi
+  
+  echo ""
+  if [[ $errors -eq 0 ]] && [[ $warnings -eq 0 ]]; then
+    print_success "Instalação concluída com sucesso!"
+  elif [[ $errors -eq 0 ]]; then
+    print_warning "Instalação concluída com $warnings aviso(s)"
+  else
+    print_error "Instalação concluída com $errors erro(s) e $warnings aviso(s)"
+  fi
+  
+  echo ""
+  echo "=============================================="
+  echo "  INFORMAÇÕES IMPORTANTES"
+  echo "=============================================="
+  echo ""
+  echo "📁 Diretório da aplicação: ${APP_DIR}"
+  echo "👤 Usuário: ${DEPLOY_USER}"
+  echo "🌐 Domínio: ${domain:-Não configurado}"
+  echo ""
+  if [[ -n "$domain" ]] && [[ "$domain" != "_" ]]; then
+    echo "🔗 Acesse: https://${domain}"
+  else
+    echo "🔗 Acesse: http://$(hostname -I | awk '{print $1}')"
+  fi
+  echo ""
+  echo "📋 Comandos úteis:"
+  echo "  - Ver logs do backend: sudo -u ${DEPLOY_USER} pm2 logs conecta-backend"
+  echo "  - Reiniciar backend: sudo -u ${DEPLOY_USER} pm2 restart conecta-backend"
+  echo "  - Status dos serviços: sudo systemctl status nginx postgresql"
+  echo ""
+  
   sleep 2
 }
 
