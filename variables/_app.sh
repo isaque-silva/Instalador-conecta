@@ -32,6 +32,10 @@ POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 POSTGRES_USER="${POSTGRES_USER:-conecta}"
 POSTGRES_DB="${POSTGRES_DB:-conecta}"
 
+# Git repository (default Conecta repo)
+CONECTA_REPO="${CONECTA_REPO:-https://github.com/isaque-silva/conecta.git}"
+link_git="${link_git:-}"
+
 # For multi-instance support
 instancia_add="${instancia_add:-}"
 backend_port="${backend_port:-}"

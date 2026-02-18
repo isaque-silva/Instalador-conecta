@@ -64,13 +64,22 @@ function system_git_clone() {
     # Ajustar permissões
     sudo chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "${APP_DIR}"
   elif [[ -n "${link_git}" ]]; then
+    # Clonar projeto do link fornecido
+    print_info "Clonando projeto do repositório: ${link_git}"
     sudo -u "${DEPLOY_USER}" bash <<EOF
     git clone ${link_git} "${APP_DIR}"
 EOF
   else
-    print_error "Não foi possível encontrar o projeto (backend/ e frontend/)."
-    print_error "Certifique-se de estar executando o script do diretório raiz do projeto."
-    exit 1
+    # Tentar clonar do repositório padrão do Conecta
+    print_info "Clonando projeto Conecta do repositório padrão: ${CONECTA_REPO}"
+    sudo -u "${DEPLOY_USER}" bash <<EOF
+    git clone ${CONECTA_REPO} "${APP_DIR}"
+EOF
+    if [[ ! -d "${APP_DIR}/backend" ]] || [[ ! -d "${APP_DIR}/frontend" ]]; then
+      print_error "Não foi possível encontrar o projeto (backend/ e frontend/)."
+      print_error "Por favor, forneça o link do repositório quando solicitado."
+      exit 1
+    fi
   fi
 
   sleep 2

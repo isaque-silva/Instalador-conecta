@@ -197,6 +197,10 @@ function inquiry_options() {
         echo
         admin_password="${admin_password_input:-${admin_password}}"
         
+        # Perguntar sobre repositório Git (opcional)
+        read -p "Link do repositório Git do Conecta (ou Enter para usar padrão): " link_git_input
+        link_git="${link_git_input:-}"
+        
         mysql_root_password="${postgres_password}"
       else
         get_urls
