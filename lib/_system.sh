@@ -373,6 +373,36 @@ NGINXEOF
 }
 
 #######################################
+# Ajusta permissões para o Nginx (www-data) ler frontend e media.
+# Sem isso, 500 ao acessar a página (Nginx não consegue ler /home/conecta/...).
+#######################################
+function system_nginx_app_permissions() {
+  print_banner
+  printf "${WHITE} 💻 Ajustando permissões para Nginx (www-data)...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+
+  local app_dir="${APP_DIR:-/home/conecta/conecta}"
+
+  echo ">>> Permitindo que Nginx leia ${app_dir}/frontend/dist e ${app_dir}/backend/media"
+  # Tornar caminho percorrível por outros (www-data)
+  sudo chmod o+x /home/conecta 2>/dev/null || true
+  sudo chmod o+x /home/conecta/conecta 2>/dev/null || true
+  sudo chmod o+x "${app_dir}" 2>/dev/null || true
+  sudo chmod o+x "${app_dir}/frontend" 2>/dev/null || true
+  sudo chmod o+x "${app_dir}/frontend/dist" 2>/dev/null || true
+  sudo chmod o+x "${app_dir}/backend" 2>/dev/null || true
+  sudo chmod o+x "${app_dir}/backend/media" 2>/dev/null || true
+  # Conteúdo legível por outros
+  sudo chmod -R o+rX "${app_dir}/frontend/dist" 2>/dev/null || true
+  sudo chmod -R o+rX "${app_dir}/backend/media" 2>/dev/null || true
+  echo "Permissões ajustadas."
+  echo ""
+  sleep 2
+}
+
+#######################################
 # Setup for nginx.conf
 # Arguments:
 #   None

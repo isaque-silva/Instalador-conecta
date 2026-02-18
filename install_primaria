@@ -96,6 +96,8 @@ frontend_start_pm2
 
 # nginx: um server block com server_name do domínio (Certbot + / e /api)
 system_nginx_primary_sites
+# permissões para www-data ler frontend e media (evita 500)
+system_nginx_app_permissions
 
 # network related
 system_nginx_conf

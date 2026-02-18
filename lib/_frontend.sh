@@ -20,9 +20,10 @@ function frontend_set_env() {
     app_instance_dir="/home/${DEPLOY_USER}/${instancia_add}"
   fi
 
+  # Base da URL (sem /api): o frontend já usa paths como /api/auth/login
   local api_url
   if [[ -n "$domain" ]]; then
-    api_url="https://${domain}/api"
+    api_url="https://${domain}"
   else
     local backend_port_used="${backend_port:-${BACKEND_PORT}}"
     api_url="http://localhost:${backend_port_used}"
