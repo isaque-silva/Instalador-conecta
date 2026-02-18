@@ -20,13 +20,13 @@ function backend_db_create() {
   # Escapar aspas simples para uso em SQL
   local db_pass_sql="${db_pass//\'/\'\'}"
 
-  sudo -u postgres bash <<EOF
-  psql -c "CREATE USER ${db_user} WITH PASSWORD '${db_pass_sql}';" 2>/dev/null || true
-  psql -c "ALTER USER ${db_user} WITH PASSWORD '${db_pass_sql}';"
-  psql -c "ALTER USER ${db_user} CREATEDB;" 2>/dev/null || true
-  psql -c "CREATE DATABASE ${db_name} OWNER ${db_user};" 2>/dev/null || true
-  psql -c "GRANT ALL PRIVILEGES ON DATABASE ${db_name} TO ${db_user};" 2>/dev/null || true
-EOF
+  echo "[PostgreSQL] Criando usuário e banco..."
+  sudo -u postgres psql -c "CREATE USER ${db_user} WITH PASSWORD '${db_pass_sql}';" 2>/dev/null || true
+  sudo -u postgres psql -c "ALTER USER ${db_user} WITH PASSWORD '${db_pass_sql}';"
+  sudo -u postgres psql -c "ALTER USER ${db_user} CREATEDB;" 2>/dev/null || true
+  sudo -u postgres psql -c "CREATE DATABASE ${db_name} OWNER ${db_user};" 2>/dev/null || true
+  sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${db_name} TO ${db_user};" 2>/dev/null || true
+  echo "[PostgreSQL] Usuário ${db_user} e banco ${db_name} configurados."
 
   sleep 2
 }
@@ -115,9 +115,13 @@ function backend_node_dependencies() {
 
   sudo -u "${DEPLOY_USER}" bash <<EOF
   cd "${app_instance_dir}/backend"
+  echo ""
+  echo ">>> Executando: npm install"
   npm install
-  # Prisma usa o .env do diretório backend
+  echo ""
+  echo ">>> Executando: npx prisma generate"
   npx prisma generate || echo "Prisma generate falhou, mas continuando..."
+  echo ""
 EOF
 
   sleep 2
@@ -143,12 +147,13 @@ function backend_node_build() {
 
   sudo -u "${DEPLOY_USER}" bash <<EOF
   cd "${app_instance_dir}/backend"
-  # Tentar compilar, mas continuar mesmo se houver erros TypeScript
+  echo ""
+  echo ">>> Executando: npm run build"
   npm run build || {
     echo "Build completou com erros TypeScript, mas continuando..."
-    # Tentar gerar Prisma Client mesmo assim
     npx prisma generate || true
   }
+  echo ""
 EOF
 
   sleep 2
@@ -176,25 +181,29 @@ function backend_db_migrate() {
   sudo -u "${DEPLOY_USER}" bash <<EOF
   cd "${app_instance_dir}/backend"
   
-  # Garantir que .env existe
   if [[ ! -f .env ]]; then
     echo "ERRO: Arquivo .env não encontrado. Execute backend_set_env antes."
     exit 1
   fi
   
-  # Prisma usa o .env automaticamente
+  echo ""
+  echo ">>> Executando: npx prisma generate"
   npx prisma generate || true
   
-  # Aplicar schema: preferir db push (mais simples, sem histórico de migrações)
+  echo ""
+  echo ">>> Executando: npx prisma db push"
   if ! npx prisma db push --accept-data-loss; then
-    echo "db push falhou, tentando migrate deploy..."
+    echo ">>> db push falhou, tentando: npx prisma migrate deploy"
     if ! npx prisma migrate deploy; then
-      echo "migrate deploy falhou. Verifique as credenciais em .env e se o usuário conecta existe no PostgreSQL."
+      echo "ERRO: migrate deploy falhou. Verifique as credenciais em .env e se o usuário conecta existe no PostgreSQL."
       exit 1
     fi
   fi
   
+  echo ""
+  echo ">>> Executando: npx prisma generate (atualizar client)"
   npx prisma generate || true
+  echo ""
 EOF
 
   sleep 2
@@ -241,16 +250,18 @@ function backend_start_pm2() {
   local db_name="${instancia_add:-${POSTGRES_DB}}"
   local db_pass="${mysql_root_password:-${postgres_password}}"
 
-  # Criar diretórios necessários
   sudo -u "${DEPLOY_USER}" mkdir -p "${app_instance_dir}/backend/media"
   sudo -u "${DEPLOY_USER}" mkdir -p "${app_instance_dir}/backend/auth_sessions"
 
+  echo ">>> Iniciando backend com PM2: ${instance_name}-backend"
   sudo -u "${DEPLOY_USER}" bash <<EOF
   cd "${app_instance_dir}/backend"
   export DATABASE_URL="postgresql://${db_user}:${db_pass}@localhost:${POSTGRES_PORT}/${db_name}?schema=public"
   pm2 delete ${instance_name}-backend 2>/dev/null || true
   pm2 start dist/index.js --name ${instance_name}-backend --update-env
   pm2 save
+  echo ""
+  pm2 list
 EOF
 
   sleep 2
@@ -272,9 +283,10 @@ function backend_nginx_setup() {
   local backend_port_used="${backend_port:-${BACKEND_PORT}}"
   local backend_hostname="${domain:-_}"
 
-  sudo bash << EOF
-cat > /etc/nginx/sites-available/${instance_name}-backend << 'END'
+  # Gerar config com domínio real para o Certbot encontrar o server_name
+  sudo tee /etc/nginx/sites-available/${instance_name}-backend > /dev/null << NGINXEOF
 server {
+  listen 80;
   server_name ${backend_hostname};
   location /api {
     proxy_pass http://127.0.0.1:${backend_port_used};
@@ -287,7 +299,6 @@ server {
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_cache_bypass \$http_upgrade;
   }
-  
   location /socket.io {
     proxy_pass http://127.0.0.1:${backend_port_used};
     proxy_http_version 1.1;
@@ -299,9 +310,8 @@ server {
     proxy_set_header X-Forwarded-Proto \$scheme;
   }
 }
-END
-ln -sf /etc/nginx/sites-available/${instance_name}-backend /etc/nginx/sites-enabled
-EOF
+NGINXEOF
+  sudo ln -sf /etc/nginx/sites-available/${instance_name}-backend /etc/nginx/sites-enabled
 
   sleep 2
 }

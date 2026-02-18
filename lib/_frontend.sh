@@ -58,7 +58,10 @@ function frontend_node_dependencies() {
 
   sudo -u "${DEPLOY_USER}" bash <<EOF
   cd "${app_instance_dir}/frontend"
+  echo ""
+  echo ">>> Executando: npm install (frontend)"
   npm install
+  echo ""
 EOF
 
   sleep 2
@@ -84,7 +87,10 @@ function frontend_node_build() {
 
   sudo -u "${DEPLOY_USER}" bash <<EOF
   cd "${app_instance_dir}/frontend"
+  echo ""
+  echo ">>> Executando: npm run build (frontend)"
   npm run build
+  echo ""
 EOF
 
   sleep 2
@@ -127,30 +133,25 @@ function frontend_nginx_setup() {
   fi
   local frontend_hostname="${domain:-_}"
 
-  sudo bash << EOF
-cat > /etc/nginx/sites-available/${instance_name}-frontend << 'END'
+  # Gerar config com domínio real para o Certbot encontrar o server_name
+  sudo tee /etc/nginx/sites-available/${instance_name}-frontend > /dev/null << NGINXEOF
 server {
+  listen 80;
   server_name ${frontend_hostname};
-  
-  # Frontend
   location / {
     root ${app_instance_dir}/frontend/dist;
     try_files \$uri \$uri/ /index.html;
     index index.html;
   }
-  
-  # Media files
   location /api/media {
     alias ${app_instance_dir}/backend/media;
     expires 30d;
     add_header Cache-Control "public, immutable";
   }
 }
-END
-
-ln -sf /etc/nginx/sites-available/${instance_name}-frontend /etc/nginx/sites-enabled
-rm -f /etc/nginx/sites-enabled/default
-EOF
+NGINXEOF
+  sudo ln -sf /etc/nginx/sites-available/${instance_name}-frontend /etc/nginx/sites-enabled
+  sudo rm -f /etc/nginx/sites-enabled/default
 
   # Testar configuração
   if sudo nginx -t; then

@@ -89,14 +89,14 @@ function system_git_clone() {
     # Ajustar permissões
     sudo chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "${APP_DIR}"
   elif [[ -n "${link_git}" ]]; then
-    # Clonar projeto do link fornecido
     print_info "Clonando projeto do repositório: ${link_git}"
+    echo ">>> Executando: git clone ${link_git} ${APP_DIR}"
     sudo -u "${DEPLOY_USER}" bash <<EOF
     git clone ${link_git} "${APP_DIR}"
 EOF
   else
-    # Tentar clonar do repositório padrão do Conecta
     print_info "Clonando projeto Conecta do repositório padrão: ${CONECTA_REPO}"
+    echo ">>> Executando: git clone ${CONECTA_REPO} ${APP_DIR}"
     sudo -u "${DEPLOY_USER}" bash <<EOF
     git clone ${CONECTA_REPO} "${APP_DIR}"
 EOF
@@ -122,8 +122,11 @@ function system_update() {
 
   sleep 2
 
+  echo ">>> Executando: apt update"
   sudo apt -y update
+  echo ">>> Executando: apt install (dependências do sistema)"
   sudo apt-get install -y libxshmfence-dev libgbm-dev wget unzip fontconfig locales gconf-service libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgconf-2-4 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 ca-certificates fonts-liberation libappindicator1 libnss3 lsb-release xdg-utils
+  echo ""
 
   sleep 2
 }
@@ -148,12 +151,17 @@ function system_node_install() {
     fi
   fi
 
+  echo ">>> Executando: setup NodeSource (Node.js 20.x)"
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  echo ">>> Executando: apt install nodejs"
   sudo apt-get install -y nodejs
   sleep 2
+  echo ">>> Executando: npm install -g npm@latest"
   sudo npm install -g npm@latest
   sleep 2
+  echo ">>> Configurando timezone America/Sao_Paulo"
   sudo timedatectl set-timezone America/Sao_Paulo
+  echo ""
 
   sleep 2
 }
@@ -175,7 +183,9 @@ function system_pm2_install() {
     return 0
   fi
 
+  echo ">>> Executando: npm install -g pm2"
   sudo npm install -g pm2
+  echo ""
 
   sleep 2
 }
@@ -197,11 +207,14 @@ function system_postgresql_install() {
     return 0
   fi
 
+  echo ">>> Adicionando repositório PostgreSQL"
   sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
   wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+  echo ">>> Executando: apt install postgresql"
   sudo apt-get update -y && sudo apt-get -y install postgresql
-
+  echo ">>> Aguardando serviço PostgreSQL"
   wait_for_service postgresql
+  echo ""
 
   sleep 2
 }
@@ -223,10 +236,12 @@ function system_nginx_install() {
     return 0
   fi
 
+  echo ">>> Executando: apt install nginx"
   sudo apt install -y nginx
   sudo rm -f /etc/nginx/sites-enabled/default
-
+  echo ">>> Aguardando serviço Nginx"
   wait_for_service nginx
+  echo ""
 
   sleep 2
 }
@@ -248,7 +263,9 @@ function system_certbot_install() {
     return 0
   fi
 
+  echo ">>> Executando: apt install certbot python3-certbot-nginx"
   sudo apt install -y certbot python3-certbot-nginx
+  echo ""
 
   sleep 2
 }
@@ -265,8 +282,11 @@ function system_nginx_restart() {
 
   sleep 2
 
+  echo ">>> Executando: systemctl restart nginx"
   sudo systemctl restart nginx
+  echo ">>> Aguardando serviço Nginx"
   wait_for_service nginx
+  echo ""
 
   sleep 2
 }
@@ -283,11 +303,13 @@ function system_nginx_conf() {
 
   sleep 2
 
+  echo ">>> Configurando /etc/nginx/conf.d/deploy.conf"
   sudo bash << EOF
 cat > /etc/nginx/conf.d/deploy.conf << 'END'
 client_max_body_size 100M;
 END
 EOF
+  echo ""
 
   sleep 2
 }
@@ -309,12 +331,14 @@ function system_certbot_setup() {
 
   sleep 2
 
+  echo ">>> Executando: certbot --nginx para ${domain}"
   sudo certbot -m ${admin_email} \
           --nginx \
           --agree-tos \
           --non-interactive \
           --domains ${domain} \
           --redirect
+  echo ""
 
   # Configurar renovação automática
   sudo systemctl enable certbot.timer

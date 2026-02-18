@@ -58,6 +58,13 @@ source "${PROJECT_ROOT}"/config
 # interactive CLI
 inquiry_options
 
+echo ""
+echo "=============================================="
+echo "  INSTALAÇÃO CONECTA - LOGS EM TEMPO REAL"
+echo "  Todos os comandos serão exibidos no terminal"
+echo "=============================================="
+echo ""
+
 # dependencies related
 system_update
 system_node_install
