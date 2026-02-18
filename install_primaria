@@ -12,6 +12,24 @@ while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
 done
 PROJECT_ROOT="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 
+# Remover pasta install no diretório pai se existir (para evitar conflitos ao clonar)
+PARENT_DIR="$(dirname "${PROJECT_ROOT}")"
+INSTALL_DIR_PARENT="${PARENT_DIR}/install"
+CURRENT_DIR="$(pwd)"
+INSTALL_DIR_CURRENT="${CURRENT_DIR}/install"
+
+# Remover pasta install no diretório pai (onde o git clone será executado)
+if [[ -d "${INSTALL_DIR_PARENT}" ]] && [[ "${PROJECT_ROOT}" != "${INSTALL_DIR_PARENT}" ]]; then
+  echo "Removendo pasta install existente em ${PARENT_DIR}..."
+  sudo rm -rf "${INSTALL_DIR_PARENT}" 2>/dev/null || rm -rf "${INSTALL_DIR_PARENT}" 2>/dev/null || true
+fi
+
+# Remover pasta install no diretório atual (caso o script seja executado de fora)
+if [[ -d "${INSTALL_DIR_CURRENT}" ]] && [[ "${PROJECT_ROOT}" != "${INSTALL_DIR_CURRENT}" ]]; then
+  echo "Removendo pasta install existente em ${CURRENT_DIR}..."
+  sudo rm -rf "${INSTALL_DIR_CURRENT}" 2>/dev/null || rm -rf "${INSTALL_DIR_CURRENT}" 2>/dev/null || true
+fi
+
 # required imports
 source "${PROJECT_ROOT}"/variables/manifest.sh
 source "${PROJECT_ROOT}"/utils/manifest.sh
@@ -56,8 +74,8 @@ system_git_clone
 backend_set_env
 backend_db_create
 backend_node_dependencies
-backend_node_build
 backend_db_migrate
+backend_node_build
 backend_db_seed
 backend_start_pm2
 
