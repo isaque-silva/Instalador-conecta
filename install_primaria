@@ -43,13 +43,13 @@ inquiry_options
 # dependencies related
 system_update
 system_node_install
-system_pm2_install
 system_postgresql_install
 system_nginx_install
 system_certbot_install
 
 # system config
 system_create_user
+system_pm2_install
 
 # backend related
 system_git_clone
