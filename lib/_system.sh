@@ -17,9 +17,34 @@ function system_create_user() {
   if id "${DEPLOY_USER}" &>/dev/null; then
     print_info "Usuário ${DEPLOY_USER} já existe"
   else
-    sudo useradd -m -p $(openssl passwd -crypt ${mysql_root_password:-${postgres_password}}) -s /bin/bash -G sudo "${DEPLOY_USER}"
-    sudo usermod -aG sudo "${DEPLOY_USER}"
-    print_success "Usuário ${DEPLOY_USER} criado"
+    # Obter senha para o usuário
+    local user_password="${mysql_root_password:-${postgres_password}}"
+    
+    # Criar usuário sem senha primeiro
+    sudo useradd -m -s /bin/bash "${DEPLOY_USER}" || {
+      print_error "Falha ao criar usuário ${DEPLOY_USER}"
+      exit 1
+    }
+    
+    # Adicionar ao grupo sudo
+    sudo usermod -aG sudo "${DEPLOY_USER}" || {
+      print_error "Falha ao adicionar usuário ao grupo sudo"
+      exit 1
+    }
+    
+    # Definir senha usando chpasswd (método mais confiável)
+    echo "${DEPLOY_USER}:${user_password}" | sudo chpasswd || {
+      print_error "Falha ao definir senha do usuário"
+      exit 1
+    }
+    
+    print_success "Usuário ${DEPLOY_USER} criado com sucesso"
+  fi
+
+  # Verificar se o usuário existe antes de criar diretório
+  if ! id "${DEPLOY_USER}" &>/dev/null; then
+    print_error "Usuário ${DEPLOY_USER} não existe após tentativa de criação"
+    exit 1
   fi
 
   # Criar diretório da aplicação
