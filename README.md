@@ -5,7 +5,7 @@ Instalador automatizado para o sistema Conecta - Multi-atendente WhatsApp SaaS.
 ## Instalação direta (mesmo formato do modelo)
 
 ```bash
-sudo apt install -y git && git clone https://github.com/isaque-silva/instalador-novo.git install && sudo chmod -R 777 ./install && cd ./install && sudo ./install_primaria
+sudo apt install -y git && git clone https://github.com/isaque-silva/Instalador-conecta.git install && sudo chmod -R 777 ./install && cd ./install && sudo ./install_primaria
 ```
 
 ### Importante
