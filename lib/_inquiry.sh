@@ -134,12 +134,31 @@ function get_git_credentials_for_update() {
     git_password=""
   fi
   if [[ -n "${git_user}" ]] && [[ -n "${git_password}" ]]; then
-    sudo -u "${DEPLOY_USER}" bash << EOF
-      git config --global credential.helper store
-      printf "https://%s:%s@github.com\n" "${git_user}" "${git_password}" > /home/${DEPLOY_USER}/.git-credentials
-      chmod 600 /home/${DEPLOY_USER}/.git-credentials
-EOF
+    GIT_ASKPASS_SCRIPT=$(mktemp /tmp/git-askpass-conecta.XXXXXX)
+    GIT_CRED_USER=$(mktemp /tmp/git-cred-user.XXXXXX)
+    GIT_CRED_PASS=$(mktemp /tmp/git-cred-pass.XXXXXX)
+    echo "${git_user}" > "${GIT_CRED_USER}"
+    echo "${git_password}" > "${GIT_CRED_PASS}"
+    chmod 644 "${GIT_CRED_USER}" "${GIT_CRED_PASS}"
+    cat > "${GIT_ASKPASS_SCRIPT}" << ASKPASSEOF
+#!/bin/sh
+case "\$1" in
+  *[Uu]sername*) cat "${GIT_CRED_USER}" 2>/dev/null ;;
+  *[Pp]assword*) cat "${GIT_CRED_PASS}" 2>/dev/null ;;
+esac
+ASKPASSEOF
+    chmod 755 "${GIT_ASKPASS_SCRIPT}"
+    export GIT_ASKPASS="${GIT_ASKPASS_SCRIPT}"
+    export GIT_ASKPASS_SCRIPT GIT_CRED_USER GIT_CRED_PASS
+  else
+    unset GIT_ASKPASS GIT_ASKPASS_SCRIPT GIT_CRED_USER GIT_CRED_PASS
   fi
+}
+
+function cleanup_git_credentials_temp() {
+  [[ -n "${GIT_ASKPASS_SCRIPT}" ]] && [[ -f "${GIT_ASKPASS_SCRIPT}" ]] && rm -f "${GIT_ASKPASS_SCRIPT}"
+  [[ -n "${GIT_CRED_USER}" ]] && [[ -f "${GIT_CRED_USER}" ]] && rm -f "${GIT_CRED_USER}"
+  [[ -n "${GIT_CRED_PASS}" ]] && [[ -f "${GIT_CRED_PASS}" ]] && rm -f "${GIT_CRED_PASS}"
 }
 
 function config_save_git_credentials() {
@@ -238,6 +257,7 @@ function inquiry_options() {
       config_save_git_credentials
       backend_update
       frontend_update
+      cleanup_git_credentials_temp
       exit
       ;;
     2) 

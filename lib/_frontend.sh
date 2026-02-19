@@ -181,8 +181,10 @@ function frontend_update() {
 
   local empresa="${empresa_atualizar:-conecta}"
   local app_instance_dir="/home/${DEPLOY_USER}/${empresa}"
+  local sudo_env=""
+  [[ -n "${GIT_ASKPASS:-}" ]] && [[ -f "${GIT_ASKPASS:-}" ]] && sudo_env="GIT_ASKPASS=${GIT_ASKPASS} GIT_TERMINAL_PROMPT=0"
 
-  sudo -u "${DEPLOY_USER}" bash <<EOF
+  sudo -u "${DEPLOY_USER}" $sudo_env bash <<EOF
   cd "${app_instance_dir}"
   pm2 stop ${empresa}-frontend 2>/dev/null || true
   git pull || true
