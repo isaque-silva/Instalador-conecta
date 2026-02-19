@@ -237,11 +237,11 @@ function configurar_dominio() {
   local alter_frontend_port="${FRONTEND_PORT:-3000}"
   local app_instance_dir="/home/${DEPLOY_USER}/${empresa}"
 
+  # Remove ALL old Conecta nginx configs (single-block "conecta", two-block "conecta-frontend/backend", and any Certbot SSL variants)
+  # so only the new domains are served (old domains stop working)
   sudo bash <<EOF
-  cd && rm -rf /etc/nginx/sites-enabled/${empresa}-frontend
-  cd && rm -rf /etc/nginx/sites-enabled/${empresa}-backend  
-  cd && rm -rf /etc/nginx/sites-available/${empresa}-frontend
-  cd && rm -rf /etc/nginx/sites-available/${empresa}-backend
+  sudo rm -f /etc/nginx/sites-enabled/conecta*
+  sudo rm -f /etc/nginx/sites-available/conecta*
 EOF
 
   sleep 2
