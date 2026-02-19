@@ -207,7 +207,6 @@ function inquiry_options() {
       fi
       ;;
     1) 
-      get_empresa_atualizar
       backend_update
       frontend_update
       exit
