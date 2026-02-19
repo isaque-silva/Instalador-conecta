@@ -12,8 +12,11 @@ admin_email="${admin_email:-admin@conecta.local}"
 admin_password="${admin_password:-Admin@123}"
 admin_name="${admin_name:-Administrador}"
 
-# Domain (can be empty for IP-only access)
+# Domain (can be empty for IP-only access; legacy single-domain)
 domain="${domain:-}"
+# Frontend and backend domains for HTTPS (each with own hostname)
+frontend_domain="${frontend_domain:-}"
+backend_domain="${backend_domain:-}"
 
 # Project paths
 PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"

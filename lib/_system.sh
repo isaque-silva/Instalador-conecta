@@ -305,8 +305,9 @@ function system_nginx_restart() {
 }
 
 #######################################
-# Cria um único server block para instalação primária (um domínio).
-# Necessário para o Certbot encontrar server_name e para / e /api funcionarem.
+# Cria server block(s) para instalação primária.
+# Com frontend_domain e backend_domain: dois blocos (HTTPS em cada).
+# Caso contrário: um bloco único (legacy) ou server_name _ (sem SSL).
 #######################################
 function system_nginx_primary_sites() {
   print_banner
@@ -315,12 +316,63 @@ function system_nginx_primary_sites() {
 
   sleep 2
 
-  local server_name="${domain:-_}"
   local backend_port_used="${BACKEND_PORT:-3001}"
   local app_dir="${APP_DIR:-/home/conecta/conecta}"
 
-  echo ">>> Gerando /etc/nginx/sites-available/conecta (server_name=${server_name})"
-  sudo tee /etc/nginx/sites-available/conecta > /dev/null << NGINXEOF
+  if [[ -n "${frontend_domain}" ]] && [[ -n "${backend_domain}" ]]; then
+    echo ">>> Gerando dois server blocks: conecta-frontend (${frontend_domain}) e conecta-backend (${backend_domain})"
+    sudo tee /etc/nginx/sites-available/conecta-frontend > /dev/null << NGINXEOF
+server {
+  listen 80;
+  server_name ${frontend_domain};
+  client_max_body_size 100M;
+  location / {
+    root ${app_dir}/frontend/dist;
+    try_files \$uri \$uri/ /index.html;
+    index index.html;
+  }
+}
+NGINXEOF
+    sudo tee /etc/nginx/sites-available/conecta-backend > /dev/null << NGINXEOF
+server {
+  listen 80;
+  server_name ${backend_domain};
+  client_max_body_size 100M;
+  location /api {
+    proxy_pass http://127.0.0.1:${backend_port_used};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_cache_bypass \$http_upgrade;
+  }
+  location /socket.io {
+    proxy_pass http://127.0.0.1:${backend_port_used};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
+  location /api/media {
+    alias ${app_dir}/backend/media;
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+  }
+}
+NGINXEOF
+    sudo rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/conecta
+    sudo ln -sf /etc/nginx/sites-available/conecta-frontend /etc/nginx/sites-enabled
+    sudo ln -sf /etc/nginx/sites-available/conecta-backend /etc/nginx/sites-enabled
+  else
+    local server_name="${domain:-_}"
+    echo ">>> Gerando /etc/nginx/sites-available/conecta (server_name=${server_name})"
+    sudo tee /etc/nginx/sites-available/conecta > /dev/null << NGINXEOF
 server {
   listen 80;
   server_name ${server_name};
@@ -359,8 +411,9 @@ server {
   }
 }
 NGINXEOF
-  sudo rm -f /etc/nginx/sites-enabled/default
-  sudo ln -sf /etc/nginx/sites-available/conecta /etc/nginx/sites-enabled
+    sudo rm -f /etc/nginx/sites-enabled/default
+    sudo ln -sf /etc/nginx/sites-available/conecta /etc/nginx/sites-enabled
+  fi
 
   if sudo nginx -t; then
     print_success "Configuração do Nginx válida"
@@ -431,7 +484,11 @@ EOF
 #   None
 #######################################
 function system_certbot_setup() {
-  if [[ -z "$domain" ]] || [[ "$domain" == "_" ]]; then
+  if [[ -n "${frontend_domain}" ]] && [[ -n "${backend_domain}" ]]; then
+    :
+  elif [[ -n "$domain" ]] && [[ "$domain" != "_" ]]; then
+    :
+  else
     print_warning "Domínio não configurado, pulando configuração SSL"
     return 0
   fi
@@ -442,13 +499,23 @@ function system_certbot_setup() {
 
   sleep 2
 
-  echo ">>> Executando: certbot --nginx para ${domain}"
-  sudo certbot -m ${admin_email} \
-          --nginx \
-          --agree-tos \
-          --non-interactive \
-          --domains ${domain} \
-          --redirect
+  if [[ -n "${frontend_domain}" ]] && [[ -n "${backend_domain}" ]]; then
+    echo ">>> Executando: certbot --nginx para ${frontend_domain},${backend_domain}"
+    sudo certbot -m ${admin_email} \
+            --nginx \
+            --agree-tos \
+            --non-interactive \
+            --domains "${frontend_domain},${backend_domain}" \
+            --redirect
+  else
+    echo ">>> Executando: certbot --nginx para ${domain}"
+    sudo certbot -m ${admin_email} \
+            --nginx \
+            --agree-tos \
+            --non-interactive \
+            --domains ${domain} \
+            --redirect
+  fi
   echo ""
 
   # Configurar renovação automática
@@ -607,11 +674,18 @@ function system_post_install_check() {
   echo ""
   echo "📁 Diretório da aplicação: ${APP_DIR}"
   echo "👤 Usuário: ${DEPLOY_USER}"
-  echo "🌐 Domínio: ${domain:-Não configurado}"
-  echo ""
-  if [[ -n "$domain" ]] && [[ "$domain" != "_" ]]; then
+  if [[ -n "${frontend_domain}" ]] && [[ -n "${backend_domain}" ]]; then
+    echo "🌐 Frontend: https://${frontend_domain}"
+    echo "🌐 Backend:  https://${backend_domain}"
+    echo ""
+    echo "🔗 Acesse o painel: https://${frontend_domain}"
+  elif [[ -n "$domain" ]] && [[ "$domain" != "_" ]]; then
+    echo "🌐 Domínio: ${domain}"
+    echo ""
     echo "🔗 Acesse: https://${domain}"
   else
+    echo "🌐 Domínio: Não configurado"
+    echo ""
     echo "🔗 Acesse: http://$(hostname -I | awk '{print $1}')"
   fi
   echo ""

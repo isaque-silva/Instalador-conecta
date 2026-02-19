@@ -20,9 +20,11 @@ function frontend_set_env() {
     app_instance_dir="/home/${DEPLOY_USER}/${instancia_add}"
   fi
 
-  # Base da URL (sem /api): o frontend já usa paths como /api/auth/login
+  # Base da URL da API: backend_domain (HTTPS) ou domain (legacy) ou localhost
   local api_url
-  if [[ -n "$domain" ]]; then
+  if [[ -n "${backend_domain}" ]]; then
+    api_url="https://${backend_domain}"
+  elif [[ -n "$domain" ]] && [[ "$domain" != "_" ]]; then
     api_url="https://${domain}"
   else
     local backend_port_used="${backend_port:-${BACKEND_PORT}}"
@@ -207,7 +209,33 @@ function configurar_dominio() {
 
   sleep 2
 
-  local empresa="${empresa_dominio:-conecta}"
+  local empresa="conecta"
+  # Normaliza domínio do frontend (remove protocolo e barra final)
+  local frontend_hostname
+  frontend_hostname=$(echo "${alter_frontend_url}" | sed -e 's|^https\?://||' -e 's|/.*||' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if [[ -z "${frontend_hostname}" ]]; then
+    printf "${RED}Erro: domínio do frontend não informado.${GRAY_LIGHT}\n\n"
+    return 1
+  fi
+  # Backend: usar alter_backend_domain se informado, senão derivar api.<domínio base>
+  local backend_hostname
+  local backend_domain_norm
+  backend_domain_norm=$(echo "${alter_backend_domain:-}" | sed -e 's|^https\?://||' -e 's|/.*||' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if [[ -n "${backend_domain_norm}" ]]; then
+    backend_hostname="${backend_domain_norm}"
+  else
+    local base_domain
+    if [[ "${frontend_hostname}" == *.*.* ]]; then
+      base_domain="${frontend_hostname#*.}"
+    else
+      base_domain="${frontend_hostname}"
+    fi
+    backend_hostname="api.${base_domain}"
+  fi
+  local alter_backend_url="https://${backend_hostname}"
+  local alter_backend_port="${BACKEND_PORT:-3001}"
+  local alter_frontend_port="${FRONTEND_PORT:-3000}"
+  local app_instance_dir="/home/${DEPLOY_USER}/${empresa}"
 
   sudo bash <<EOF
   cd && rm -rf /etc/nginx/sites-enabled/${empresa}-frontend
@@ -218,23 +246,18 @@ EOF
 
   sleep 2
 
-  local app_instance_dir="/home/${DEPLOY_USER}/${empresa}"
-  local alter_backend_port="${alter_backend_port:-${BACKEND_PORT}}"
-  local alter_frontend_port="${alter_frontend_port:-${FRONTEND_PORT}}"
-
   sudo -u "${DEPLOY_USER}" bash <<EOF
   cd "${app_instance_dir}/frontend"
-  sed -i "1c\VITE_API_URL=https://${alter_backend_url}" .env 2>/dev/null || true
+  sed -i "1c\VITE_API_URL=${alter_backend_url}" .env 2>/dev/null || true
 EOF
 
   sleep 2
 
-  local backend_hostname=$(echo "${alter_backend_url/https:\/\/}")
-
   sudo bash <<EOF
-  cat > /etc/nginx/sites-available/${empresa}-backend << 'END'
+  cat > /etc/nginx/sites-available/${empresa}-backend << 'NGINXEND'
 server {
   server_name ${backend_hostname};
+  client_max_body_size 100M;
   location /api {
     proxy_pass http://127.0.0.1:${alter_backend_port};
     proxy_http_version 1.1;
@@ -246,17 +269,30 @@ server {
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_cache_bypass \$http_upgrade;
   }
+  location /socket.io {
+    proxy_pass http://127.0.0.1:${alter_backend_port};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
+  location /api/media {
+    alias ${app_instance_dir}/backend/media;
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+  }
 }
-END
+NGINXEND
 ln -sf /etc/nginx/sites-available/${empresa}-backend /etc/nginx/sites-enabled
 EOF
 
   sleep 2
 
-  local frontend_hostname=$(echo "${alter_frontend_url/https:\/\/}")
-
   sudo bash << EOF
-cat > /etc/nginx/sites-available/${empresa}-frontend << 'END'
+cat > /etc/nginx/sites-available/${empresa}-frontend << 'NGINXEND'
 server {
   server_name ${frontend_hostname};
   location / {
@@ -265,7 +301,7 @@ server {
     index index.html;
   }
 }
-END
+NGINXEND
 ln -sf /etc/nginx/sites-available/${empresa}-frontend /etc/nginx/sites-enabled
 EOF
 

@@ -42,6 +42,8 @@ deploy_password=${deploy_password}
 postgres_password=${postgres_password}
 jwt_secret=${jwt_secret}
 domain=${domain}
+frontend_domain=${frontend_domain}
+backend_domain=${backend_domain}
 admin_email=${admin_email}
 admin_password=${admin_password}
 admin_name=${admin_name}
@@ -57,6 +59,21 @@ source "${PROJECT_ROOT}"/config
 
 # interactive CLI
 inquiry_options
+
+# Persistir domínios e config escolhidos (para re-runs e alteração de domínio)
+sudo tee "${PROJECT_ROOT}"/config > /dev/null << EOF
+deploy_password=${deploy_password}
+postgres_password=${postgres_password}
+jwt_secret=${jwt_secret}
+domain=${domain}
+frontend_domain=${frontend_domain}
+backend_domain=${backend_domain}
+admin_email=${admin_email}
+admin_password=${admin_password}
+admin_name=${admin_name}
+EOF
+sudo chown root:root "${PROJECT_ROOT}"/config
+sudo chmod 700 "${PROJECT_ROOT}"/config
 
 echo ""
 echo "=============================================="

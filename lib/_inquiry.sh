@@ -101,39 +101,18 @@ function get_empresa_desbloquear() {
   read -p "> " empresa_desbloquear
 }
 
-function get_empresa_dominio() {
+function get_novo_dominio_frontend() {
   print_banner
-  printf "${WHITE} 💻 Digite o nome da Instancia/Empresa que deseja Alterar os Dominios:${GRAY_LIGHT}"
-  printf "\n\n"
-  read -p "> " empresa_dominio
-}
-
-function get_alter_frontend_url() {
-  print_banner
-  printf "${WHITE} 💻 Digite o NOVO domínio do FRONTEND/PAINEL para a ${empresa_dominio}:${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Digite o NOVO domínio do FRONTEND/PAINEL (ex: app.conectazap.net):${GRAY_LIGHT}"
   printf "\n\n"
   read -p "> " alter_frontend_url
 }
 
-function get_alter_backend_url() {
+function get_novo_dominio_backend() {
   print_banner
-  printf "${WHITE} 💻 Digite o NOVO domínio do BACKEND/API para a ${empresa_dominio}:${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Digite o NOVO domínio do BACKEND/API (ex: api.conectazap.net) ou Enter para derivar do frontend:${GRAY_LIGHT}"
   printf "\n\n"
-  read -p "> " alter_backend_url
-}
-
-function get_alter_frontend_port() {
-  print_banner
-  printf "${WHITE} 💻 Digite a porta do FRONTEND da Instancia/Empresa ${empresa_dominio}; A porta deve ser o mesma informada durante a instalação ${GRAY_LIGHT}"
-  printf "\n\n"
-  read -p "> " alter_frontend_port
-}
-
-function get_alter_backend_port() {
-  print_banner
-  printf "${WHITE} 💻 Digite a porta do BACKEND da Instancia/Empresa ${empresa_dominio}; A porta deve ser o mesma informada durante a instalação ${GRAY_LIGHT}"
-  printf "\n\n"
-  read -p "> " alter_backend_port
+  read -p "> " alter_backend_domain
 }
 
 function get_urls() {
@@ -158,7 +137,7 @@ function inquiry_options() {
   printf "   [2] Deletar Conecta\n"
   printf "   [3] Bloquear Conecta\n"
   printf "   [4] Desbloquear Conecta\n"
-  printf "   [5] Alter. dominio Conecta\n"
+  printf "   [5] Alterar dominio Conecta\n"
   printf "\n"
   read -p "> " option
 
@@ -186,10 +165,18 @@ function inquiry_options() {
           deploy_password="$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)"
         fi
         
-        # Coletar informações básicas
-        read -p "Digite o domínio (ex: conecta.exemplo.com) ou pressione Enter para pular SSL: " domain_input
-        domain="${domain_input:-}"
-        
+        # Coletar informações básicas (domínios para HTTPS: frontend e backend separados)
+        read -p "Digite o domínio do FRONTEND (ex: app.conectazap.net) ou Enter para pular SSL: " frontend_domain_input
+        frontend_domain="${frontend_domain_input:-}"
+        read -p "Digite o domínio do BACKEND (ex: api.conectazap.net) ou Enter para derivar do frontend: " backend_domain_input
+        backend_domain="${backend_domain_input:-}"
+        if [[ -n "${frontend_domain}" ]] && [[ -z "${backend_domain}" ]]; then
+          base_d=""
+          if [[ "${frontend_domain}" == *.*.* ]]; then base_d="${frontend_domain#*.}"; else base_d="${frontend_domain}"; fi
+          backend_domain="api.${base_d}"
+        fi
+        domain="${frontend_domain:-${domain}}"
+
         read -p "E-mail do administrador padrão [${admin_email}]: " admin_email_input
         admin_email="${admin_email_input:-${admin_email}}"
         
@@ -227,11 +214,8 @@ function inquiry_options() {
       exit
       ;;
     5) 
-      get_empresa_dominio
-      get_alter_frontend_url
-      get_alter_backend_url
-      get_alter_frontend_port
-      get_alter_backend_port
+      get_novo_dominio_frontend
+      get_novo_dominio_backend
       configurar_dominio
       exit
       ;;        
