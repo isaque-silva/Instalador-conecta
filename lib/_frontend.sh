@@ -253,6 +253,16 @@ EOF
 
   sleep 2
 
+  # Rebuild frontend so the new backend URL is baked into the JS (Vite embeds VITE_API_URL at build time)
+  # Otherwise login/API/WebSocket keep using the old domain and cause ERR_CERT_COMMON_NAME_INVALID
+  printf "${WHITE} 💻 Recompilando o frontend com o novo domínio da API...${GRAY_LIGHT}\n\n"
+  sudo -u "${DEPLOY_USER}" bash <<EOF
+  cd "${app_instance_dir}/frontend"
+  npm run build
+EOF
+
+  sleep 2
+
   sudo bash <<EOF
   cat > /etc/nginx/sites-available/${empresa}-backend << 'NGINXEND'
 server {
