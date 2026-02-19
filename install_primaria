@@ -47,6 +47,8 @@ backend_domain=${backend_domain}
 admin_email=${admin_email}
 admin_password=${admin_password}
 admin_name=${admin_name}
+git_user=${git_user}
+git_password=${git_password}
 EOF
 fi
 
@@ -71,6 +73,8 @@ backend_domain=${backend_domain}
 admin_email=${admin_email}
 admin_password=${admin_password}
 admin_name=${admin_name}
+git_user=${git_user}
+git_password=${git_password}
 EOF
 sudo chown root:root "${PROJECT_ROOT}"/config
 sudo chmod 700 "${PROJECT_ROOT}"/config

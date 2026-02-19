@@ -115,6 +115,46 @@ function get_novo_dominio_backend() {
   read -p "> " alter_backend_domain
 }
 
+function get_git_credentials_for_update() {
+  print_banner
+  printf "${WHITE} 💻 Credenciais GitHub (usadas em backend e frontend para git pull):${GRAY_LIGHT}"
+  printf "\n\n"
+  if [[ -z "${git_user}" ]]; then
+    read -p "Usuário GitHub (ou Enter para repositório público): " git_user_input
+    git_user="${git_user_input:-}"
+  else
+    read -p "Usuário GitHub [${git_user}] ou Enter para manter: " git_user_input
+    git_user="${git_user_input:-${git_user}}"
+  fi
+  if [[ -n "${git_user}" ]]; then
+    read -sp "Senha ou token GitHub: " git_password_input
+    echo
+    git_password="${git_password_input:-${git_password}}"
+  else
+    git_password=""
+  fi
+  if [[ -n "${git_user}" ]] && [[ -n "${git_password}" ]]; then
+    sudo -u "${DEPLOY_USER}" bash << EOF
+      git config --global credential.helper store
+      printf "https://%s:%s@github.com\n" "${git_user}" "${git_password}" > /home/${DEPLOY_USER}/.git-credentials
+      chmod 600 /home/${DEPLOY_USER}/.git-credentials
+EOF
+  fi
+}
+
+function config_save_git_credentials() {
+  local cf="${PROJECT_ROOT:-.}/config"
+  if [[ -f "$cf" ]]; then
+    grep -v '^git_user=' "$cf" 2>/dev/null | grep -v '^git_password=' > "$cf.tmp" || true
+    echo "git_user=${git_user}" >> "$cf.tmp"
+    echo "git_password=${git_password}" >> "$cf.tmp"
+    sudo tee "$cf" < "$cf.tmp" > /dev/null
+    sudo chown root:root "$cf"
+    sudo chmod 700 "$cf"
+    rm -f "$cf.tmp"
+  fi
+}
+
 function get_urls() {
   get_mysql_root_password
   get_link_git
@@ -194,6 +234,8 @@ function inquiry_options() {
       fi
       ;;
     1) 
+      get_git_credentials_for_update
+      config_save_git_credentials
       backend_update
       frontend_update
       exit

@@ -38,6 +38,9 @@ POSTGRES_DB="${POSTGRES_DB:-conecta}"
 # Git repository (default Conecta repo)
 CONECTA_REPO="${CONECTA_REPO:-https://github.com/isaque-silva/conecta.git}"
 link_git="${link_git:-}"
+# GitHub credentials for git pull (used by update; saved to config)
+git_user="${git_user:-}"
+git_password="${git_password:-}"
 
 # For multi-instance support
 instancia_add="${instancia_add:-}"
