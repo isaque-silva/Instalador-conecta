@@ -342,13 +342,18 @@ function backend_update() {
   sudo -u "${DEPLOY_USER}" bash -c "pm2 stop ${empresa}-backend 2>/dev/null || true"
 
   # 2) Atualizar código via git pull
-  echo ">>> [2/8] Executando: git pull"
+  # Primeiro faz git stash para guardar alterações locais (ex: package-lock.json
+  # modificado pelo npm install no servidor) que impediriam o git pull
+  echo ">>> [2/8] Executando: git stash + git pull"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir} && git stash 2>/dev/null || true"
   sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir} && ${env_prefix} git pull"
   if [[ $? -ne 0 ]]; then
     printf "${RED} ERRO: git pull falhou. Verifique credenciais ou conflitos.${GRAY_LIGHT}\n"
     sudo -u "${DEPLOY_USER}" bash -c "pm2 start ${empresa}-backend 2>/dev/null || true"
     return 1
   fi
+  # Descarta o stash (npm install vai regenerar os lock files)
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir} && git stash drop 2>/dev/null || true"
 
   # 3) Instalar dependências
   echo ">>> [3/8] Executando: npm install (backend)"

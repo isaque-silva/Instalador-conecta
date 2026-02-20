@@ -189,8 +189,11 @@ function frontend_update() {
   fi
 
   # 1) Atualizar código via git pull (pode já ter sido feito no backend_update)
-  echo ">>> [1/5] Executando: git pull (frontend)"
+  # git stash para garantir que alterações locais (package-lock.json) não bloqueiem o pull
+  echo ">>> [1/5] Executando: git stash + git pull (frontend)"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir} && git stash 2>/dev/null || true"
   sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir} && ${env_prefix} git pull" 2>/dev/null || true
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir} && git stash drop 2>/dev/null || true"
 
   # 2) Instalar dependências
   echo ">>> [2/5] Executando: npm install (frontend)"
