@@ -330,23 +330,56 @@ function backend_update() {
 
   local empresa="${empresa_atualizar:-conecta}"
   local app_instance_dir="/home/${DEPLOY_USER}/${empresa}"
-  local sudo_env=""
-  [[ -n "${GIT_ASKPASS:-}" ]] && [[ -f "${GIT_ASKPASS:-}" ]] && sudo_env="GIT_ASKPASS=${GIT_ASKPASS} GIT_TERMINAL_PROMPT=0"
 
-  sudo -u "${DEPLOY_USER}" $sudo_env bash <<EOF
-  cd "${app_instance_dir}"
-  pm2 stop ${empresa}-backend
-  git pull || true
-  cd "${app_instance_dir}/backend"
-  npm install
-  npm update -f
-  rm -rf dist 
-  npm run build
-  npx prisma migrate deploy || npx prisma db push
-  pm2 start ${empresa}-backend
-  pm2 save
-EOF
+  # Preparar variáveis de ambiente para autenticação Git
+  local env_prefix=""
+  if [[ -n "${GIT_ASKPASS:-}" ]] && [[ -f "${GIT_ASKPASS:-}" ]]; then
+    env_prefix="GIT_ASKPASS=${GIT_ASKPASS} GIT_TERMINAL_PROMPT=0"
+  fi
 
+  # 1) Parar backend
+  echo ">>> [1/8] Parando backend..."
+  sudo -u "${DEPLOY_USER}" bash -c "pm2 stop ${empresa}-backend 2>/dev/null || true"
+
+  # 2) Atualizar código via git pull
+  echo ">>> [2/8] Executando: git pull"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir} && ${env_prefix} git pull"
+  if [[ $? -ne 0 ]]; then
+    printf "${RED} ERRO: git pull falhou. Verifique credenciais ou conflitos.${GRAY_LIGHT}\n"
+    sudo -u "${DEPLOY_USER}" bash -c "pm2 start ${empresa}-backend 2>/dev/null || true"
+    return 1
+  fi
+
+  # 3) Instalar dependências
+  echo ">>> [3/8] Executando: npm install (backend)"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir}/backend && npm install"
+
+  # 4) Gerar Prisma Client (essencial para novos campos no schema)
+  echo ">>> [4/8] Executando: npx prisma generate"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir}/backend && npx prisma generate"
+
+  # 5) Aplicar migrações do banco de dados
+  # Primeiro tenta migrate deploy (para migrações versionadas)
+  # Depois SEMPRE roda db push para garantir que o schema está sincronizado
+  # (campos novos sem migration file seriam ignorados pelo migrate deploy)
+  echo ">>> [5/8] Executando: migrações do banco de dados"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir}/backend && npx prisma migrate deploy 2>&1 || true"
+  echo ">>> [5/8] Executando: prisma db push (sincronizar schema)"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir}/backend && npx prisma db push --accept-data-loss 2>&1 || true"
+
+  # 6) Regenerar Prisma Client após migrações
+  echo ">>> [6/8] Executando: npx prisma generate (pós-migração)"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir}/backend && npx prisma generate"
+
+  # 7) Compilar o backend
+  echo ">>> [7/8] Executando: npm run build"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir}/backend && rm -rf dist && npm run build"
+
+  # 8) Reiniciar backend
+  echo ">>> [8/8] Reiniciando backend no PM2"
+  sudo -u "${DEPLOY_USER}" bash -c "pm2 restart ${empresa}-backend --update-env && pm2 save"
+
+  printf "\n${GREEN} ✅ Backend atualizado com sucesso!${GRAY_LIGHT}\n\n"
   sleep 2
 }
 

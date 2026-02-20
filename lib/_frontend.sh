@@ -181,21 +181,45 @@ function frontend_update() {
 
   local empresa="${empresa_atualizar:-conecta}"
   local app_instance_dir="/home/${DEPLOY_USER}/${empresa}"
-  local sudo_env=""
-  [[ -n "${GIT_ASKPASS:-}" ]] && [[ -f "${GIT_ASKPASS:-}" ]] && sudo_env="GIT_ASKPASS=${GIT_ASKPASS} GIT_TERMINAL_PROMPT=0"
 
-  sudo -u "${DEPLOY_USER}" $sudo_env bash <<EOF
-  cd "${app_instance_dir}"
-  pm2 stop ${empresa}-frontend 2>/dev/null || true
-  git pull || true
-  cd "${app_instance_dir}/frontend"
-  npm install
-  rm -rf build dist
-  npm run build
-  pm2 start ${empresa}-frontend 2>/dev/null || true
-  pm2 save
-EOF
+  # Preparar variáveis de ambiente para autenticação Git
+  local env_prefix=""
+  if [[ -n "${GIT_ASKPASS:-}" ]] && [[ -f "${GIT_ASKPASS:-}" ]]; then
+    env_prefix="GIT_ASKPASS=${GIT_ASKPASS} GIT_TERMINAL_PROMPT=0"
+  fi
 
+  # 1) Atualizar código via git pull (pode já ter sido feito no backend_update)
+  echo ">>> [1/5] Executando: git pull (frontend)"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir} && ${env_prefix} git pull" 2>/dev/null || true
+
+  # 2) Instalar dependências
+  echo ">>> [2/5] Executando: npm install (frontend)"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir}/frontend && npm install"
+
+  # 3) Compilar o frontend
+  echo ">>> [3/5] Executando: npm run build (frontend)"
+  sudo -u "${DEPLOY_USER}" bash -c "cd ${app_instance_dir}/frontend && rm -rf dist && npm run build"
+  if [[ $? -ne 0 ]]; then
+    printf "${RED} ERRO: build do frontend falhou!${GRAY_LIGHT}\n"
+    return 1
+  fi
+
+  # 4) Ajustar permissões para o Nginx (www-data) ler os novos arquivos
+  echo ">>> [4/5] Ajustando permissões para Nginx"
+  sudo chmod o+x /home/${DEPLOY_USER} 2>/dev/null || true
+  sudo chmod o+x ${app_instance_dir} 2>/dev/null || true
+  sudo chmod o+x ${app_instance_dir}/frontend 2>/dev/null || true
+  sudo chmod o+x ${app_instance_dir}/frontend/dist 2>/dev/null || true
+  sudo chmod -R o+rX ${app_instance_dir}/frontend/dist 2>/dev/null || true
+  sudo chmod o+x ${app_instance_dir}/backend 2>/dev/null || true
+  sudo chmod o+x ${app_instance_dir}/backend/media 2>/dev/null || true
+  sudo chmod -R o+rX ${app_instance_dir}/backend/media 2>/dev/null || true
+
+  # 5) Reiniciar Nginx para servir os novos arquivos
+  echo ">>> [5/5] Reiniciando Nginx"
+  sudo systemctl restart nginx
+
+  printf "\n${GREEN} ✅ Frontend atualizado com sucesso!${GRAY_LIGHT}\n\n"
   sleep 2
 }
 
